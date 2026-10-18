@@ -1,0 +1,25 @@
+{
+  "project": "Faculty Evaluation System (FES)",
+  "compliance": [
+    "RA 8792 (E-Commerce Act / Electronic Signatures, Non-Repudiation, and SHA-256 Document Hashing)",
+    "RA 10173 (Data Privacy Act / Strict Student PII Anonymization via src/utils/pii.ts)"
+  ],
+  "architecture_rules": [
+    "Never alter, rewrite, or synthesize student text feedback with AI; keep comments strictly verbatim and rely exclusively on automated regex PII scrubbing.",
+    "Enforce two-tier release workflow: HR/QA Release triggers immediate Faculty access; Deans act strictly in an oversight/review capacity (7-day window) without gatekeeping faculty access.",
+    "Enforce server-side Role-Based Access Control (RBAC) mapping Student, Faculty, Dean, and HR/QA roles.",
+    "Ensure all database changes use relational PostgreSQL schemas with foreign key constraints, indexes, and transaction locks."
+  ],
+  "security_standards": [
+    "Store passwords using salted cryptographic hashing (bcrypt or Argon2). Never use plaintext passwords.",
+    "Attach SHA-256 cryptographic hashes to audit records and signed agreement documents.",
+    "Implement append-only, immutable database tables for high-risk audit logs that cannot be modified or deleted.",
+    "Enforce HttpOnly, Secure, and SameSite=Strict properties on all session/JWT cookies."
+  ],
+  "terminology_standards": [
+    "Use 'Academic Term / Semester' instead of 'Evaluation Cycle'.",
+    "Use 'HR / Quality Assurance (QA)' instead of 'Admin'.",
+    "Use 'Dean's Oversight Sign-Off' instead of 'Dean Receipt'.",
+    "Use 'Performance Indicators' instead of 'Sub-questions'."
+  ]
+}

@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fes
+      POSTGRES_USER: fes_owner
+      POSTGRES_PASSWORD: fes_owner_dev_password
+      FES_APP_PASSWORD: fes_app_dev_password
+    ports:
+      - "${FES_DB_PORT:-5433}:5432"
+    volumes:
+      - fes_pgdata:/var/lib/postgresql/data
+      - ./server/docker/init-app-role.sh:/docker-entrypoint-initdb.d/10-init-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fes_owner -d fes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  fes_pgdata:
