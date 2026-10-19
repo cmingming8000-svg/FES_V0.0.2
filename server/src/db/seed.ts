@@ -182,27 +182,34 @@ async function seed(): Promise<void> {
     }
 
     // Seed evaluations for the active term. Each enrolled student evaluates a
-    // subject at most once; remaining volume is recorded as unlinked (legacy
-    // paper) submissions with no student ID.
+    // subject at most once. Distribute evaluations across enrolled students fairly.
     const indicatorIds = CRITERIA.flatMap(c => c.indicators.map((_, i) => indicatorId(c.id, i)));
     let seeded = 0;
     for (const [facultyId, count, base] of FACULTY_EVALS) {
       const faculty = FACULTY.find(f => f.id === facultyId)!;
       const used = new Set<string>();
-      for (let i = 0; i < count; i++) {
+      let attemptCount = 0;
+      const maxAttempts = count * 5;
+      for (let i = 0; i < count && attemptCount < maxAttempts; i++, attemptCount++) {
         const course = faculty.courses[i % faculty.courses.length];
         const ownsSubject = SUBJECTS.some(([id, , , fid]) => id === course && fid === facultyId);
-        const student = ownsSubject ? STUDENTS.find(([sid, , , subs]) => subs.includes(course) && !used.has(`${sid}:${course}`)) : undefined;
-        if (student) used.add(`${student[0]}:${course}`);
-        const { rows } = await client.query(
-          `INSERT INTO evaluations (term_id, faculty_id, subject_id, student_id, feedback, submitted_at) VALUES ('cyc-001', $1, $2, $3, $4, $5) RETURNING id`,
-          [facultyId, course, student?.[0] ?? null, stripPII(FEEDBACK[i % FEEDBACK.length]), new Date(Date.UTC(2026, 2, 5 + i, 2))],
-        );
-        await client.query(
-          'INSERT INTO evaluation_ratings (evaluation_id, indicator_id, rating) SELECT $1, unnest($2::text[]), unnest($3::smallint[])',
-          [rows[0].id, indicatorIds, base],
-        );
-        seeded++;
+        let student = undefined;
+        if (ownsSubject) {
+          const enrolled = STUDENTS.filter(([sid, , , subs]) => subs.includes(course));
+          student = enrolled.find(([sid]) => !used.has(`${sid}:${course}`));
+        }
+        if (student) {
+          used.add(`${student[0]}:${course}`);
+          const { rows } = await client.query(
+            `INSERT INTO evaluations (term_id, faculty_id, subject_id, student_id, feedback, submitted_at) VALUES ('cyc-001', $1, $2, $3, $4, $5) RETURNING id`,
+            [facultyId, course, student[0], stripPII(FEEDBACK[i % FEEDBACK.length]), new Date(Date.UTC(2026, 2, 5 + i, 2))],
+          );
+          await client.query(
+            'INSERT INTO evaluation_ratings (evaluation_id, indicator_id, rating) SELECT $1, unnest($2::text[]), unnest($3::smallint[])',
+            [rows[0].id, indicatorIds, base],
+          );
+          seeded++;
+        }
       }
     }
 

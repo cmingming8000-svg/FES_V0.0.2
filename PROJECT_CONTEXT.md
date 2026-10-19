@@ -24,7 +24,7 @@
 | ----------------- | ------------------------------------------------------------------ |
 | **System Name**   | Faculty Evaluation System (FES)                                   |
 | **Domain**        | Higher Education Institutional Management (Philippines)            |
-| **Core Philosophy** | Designed for professional development and continuous institutional improvement rather than punitive measures. HR retains verification visibility through student IDs, while student evaluation ratings remain strictly anonymized. |
+| **Core Philosophy** | Designed for professional development and continuous institutional improvement rather than punitive measures. HR retains full verification visibility through student IDs, while student evaluation ratings remain strictly anonymized to faculty and deans. |
 
 ### Core Modules
 1. **Student Evaluation Module** — Secure three-step evaluation flow (Program $\rightarrow$ Subject $\rightarrow$ Professor) with automated PII regex redaction.
@@ -122,7 +122,7 @@ export interface Evaluation {
   ratings: Record<string, number>;
   feedback: string;
   submittedAt: string;
-  studentId?: string; // Stored for HR / QA verification only, hidden from faculty and deans
+  studentId?: string; // Stored for HR / QA verification and control purposes only; hidden from faculty and deans
 }
 
 export interface EvaluationCycle {

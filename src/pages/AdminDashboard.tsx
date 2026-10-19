@@ -7,16 +7,19 @@ import { exportFacultyPerformanceSummary, exportCycleCompletionPDF } from '../ut
 import ConfirmDialog from '../components/ConfirmDialog';
 import AgreementSignModal from '../components/AgreementSignModal';
 import { errorMessage } from '../api/client';
-import type { Faculty, EvaluationCycle, Criterion, AuditLogEntry, AuditChainVerification, InstitutionalTNA, TNASnapshotResponse } from '../types';
+import { useAuth } from '../auth';
+import type { Faculty, EvaluationCycle, Criterion, AuditLogEntry, AuditChainVerification, InstitutionalTNA, TNASnapshotResponse, ManagedAccount, UserRole } from '../types';
 import { LayoutDashboard, Users, Calendar, ListChecks, ScrollText, Plus, Trash2, Search, AlertTriangle, CheckCircle, Shield, FileSpreadsheet, GraduationCap, Sparkles, Download, BarChart3, MessageSquare, Printer, UserPlus, FileText, ChevronDown, RefreshCw, ShieldCheck, Archive, ArchiveRestore, X } from 'lucide-react';
 import AdminPrintReport from '../components/AdminPrintReport';
+import BulkImport from '../components/BulkImport';
 
-type Tab = 'overview' | 'faculty' | 'cycles' | 'criteria' | 'tna' | 'audit';
+type Tab = 'overview' | 'faculty' | 'cycles' | 'criteria' | 'tna' | 'accounts' | 'audit';
 
 interface AdminDashboardProps { viewingCycleId?: string; onViewingCycleChange?: (cycleId: string) => void; }
 
 export default function AdminDashboard({ viewingCycleId, onViewingCycleChange }: AdminDashboardProps) {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [faculty, setFaculty] = useState<Faculty[]>([]);
   const [cycles, setCycles] = useState<EvaluationCycle[]>([]);
@@ -40,6 +43,20 @@ export default function AdminDashboard({ viewingCycleId, onViewingCycleChange }:
   const [showAdminSignModal, setShowAdminSignModal] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [, setDataVersion] = useState(0);
+  const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountSearch, setAccountSearch] = useState('');
+  const [accountRoleFilter, setAccountRoleFilter] = useState<'all' | UserRole>('all');
+  const [accountBusyId, setAccountBusyId] = useState<string | null>(null);
+  const [manageMessage, setManageMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [accountFormTab, setAccountFormTab] = useState<'create' | 'manage'>('create');
+  const [selectedAccountRole, setSelectedAccountRole] = useState<'faculty' | 'student' | 'dean' | 'hr_qa'>('faculty');
+  const [accountFormData, setAccountFormData] = useState({ name: '', institutionalId: '', email: '', username: '', password: '', confirmPassword: '', department: '', title: '', programId: '', subjects: [] as string[] });
+  const [accountMessage, setAccountMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [accountSubmitting, setAccountSubmitting] = useState(false);
+  const programs = store.getPrograms();
+  const subjects = store.getSubjects();
+  const departments = store.getDepartments();
 
   const activeCycle = cycles.find(c => c.status === 'active');
   const cycleId = viewingCycleId || activeCycle?.id;
@@ -57,6 +74,21 @@ export default function AdminDashboard({ viewingCycleId, onViewingCycleChange }:
     try { setAuditLog(await store.getAuditLog(200)); } catch (err) { setActionError(errorMessage(err)); }
   }, []);
   useEffect(() => { if (activeTab === 'audit') { setAuditVerification(null); loadAudit(); } }, [activeTab, loadAudit]);
+
+  const loadAccounts = useCallback(async () => {
+    setAccountsLoading(true);
+    try { setAccounts(await store.listAccounts()); } catch (err) { setManageMessage({ type: 'error', text: errorMessage(err) }); }
+    finally { setAccountsLoading(false); }
+  }, []);
+  useEffect(() => { if (activeTab === 'accounts' && accountFormTab === 'manage') { setManageMessage(null); loadAccounts(); } }, [activeTab, accountFormTab, loadAccounts]);
+
+  const runAccountAction = async (accountId: string, action: () => Promise<{ message: string }>) => {
+    setManageMessage(null);
+    setAccountBusyId(accountId);
+    try { setManageMessage({ type: 'success', text: (await action()).message }); await loadAccounts(); }
+    catch (err) { setManageMessage({ type: 'error', text: errorMessage(err) }); }
+    finally { setAccountBusyId(null); }
+  };
 
   const loadTNA = useCallback(async (refresh = false) => {
     if (!cycleId) return;
@@ -81,7 +113,7 @@ export default function AdminDashboard({ viewingCycleId, onViewingCycleChange }:
     }
   }, [showExportMenu]);
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [{ id: 'overview', label: 'Overview', icon: <LayoutDashboard size={16} /> }, { id: 'faculty', label: 'Faculty', icon: <Users size={16} /> }, { id: 'cycles', label: 'Academic Terms', icon: <Calendar size={16} /> }, { id: 'criteria', label: 'Criteria & Indicators', icon: <ListChecks size={16} /> }, { id: 'tna', label: 'TNA', icon: <GraduationCap size={16} /> }, { id: 'audit', label: 'Audit Trail', icon: <ScrollText size={16} /> }];
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [{ id: 'overview', label: 'Overview', icon: <LayoutDashboard size={16} /> }, { id: 'faculty', label: 'Faculty', icon: <Users size={16} /> }, { id: 'cycles', label: 'Academic Terms', icon: <Calendar size={16} /> }, { id: 'criteria', label: 'Criteria & Indicators', icon: <ListChecks size={16} /> }, { id: 'tna', label: 'TNA', icon: <GraduationCap size={16} /> }, { id: 'accounts', label: 'Account Management', icon: <Users size={16} /> }, { id: 'audit', label: 'Audit Trail', icon: <ScrollText size={16} /> }];
 
   const facultyWithMetrics = faculty.filter(f => store.getFacultyMetrics(f.id, cycleId).totalSubmissions >= THRESHOLD);
   const flaggedFaculty = facultyWithMetrics.filter(f => store.getFacultyMetrics(f.id, cycleId).overallAverage < BENCHMARK);
@@ -94,7 +126,6 @@ export default function AdminDashboard({ viewingCycleId, onViewingCycleChange }:
   const adminReleaseInfo = store.getCycleAdminRelease(cycleId);
   const releaseAgreement = store.findAgreement('hr_qa_release', cycleId);
   const canRelease = !isAdminReleased && !!viewingCycle && viewingCycle.status !== 'upcoming';
-  const departments = store.getDepartments();
 
   if (isPrintMode) return (<AdminPrintReport cycleName={viewingCycle?.displayName || 'Current Academic Term'} criteria={criteria} cycleId={cycleId} />);
 
@@ -103,10 +134,9 @@ export default function AdminDashboard({ viewingCycleId, onViewingCycleChange }:
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-1 p-1 rounded-xl overflow-x-auto flex-1" style={{ backgroundColor: '#EDEBE8' }}>{tabs.map(tab => (<button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedFaculty(null); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap" style={{ backgroundColor: activeTab === tab.id ? '#002366' : 'transparent', color: activeTab === tab.id ? '#FFFFFF' : '#1A1A1A' }}>{tab.icon}{tab.label}</button>))}</div>
         <div className="flex gap-2 flex-wrap">
-          {canRelease && (<button onClick={() => setShowAdminSignModal(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90" style={{ backgroundColor: '#B87333', color: '#FFFFFF' }}><Shield size={14} />HR / QA Release</button>)}
-          {isAdminReleased && (<div className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium" style={{ backgroundColor: '#D1FAE5', color: '#2E8B57' }} title={adminReleaseInfo ? `Released by ${adminReleaseInfo.releasedBy}` : undefined}><CheckCircle size={14} />Released {adminReleaseInfo?.releasedAt ? new Date(adminReleaseInfo.releasedAt).toLocaleDateString() : ''}{releaseAgreement && <button onClick={() => runAction(() => store.downloadAgreementReceipt(releaseAgreement))} className="ml-1 underline flex items-center gap-0.5" title={releaseAgreement.trackingId}><Download size={12} />Receipt</button>}</div>)}
-          <button onClick={() => navigate('/create-account')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90" style={{ backgroundColor: '#2E8B57', color: '#FFFFFF' }}><UserPlus size={14} />Create Account</button>
-          <div className="relative" data-export-menu>
+           {canRelease && (<button onClick={() => setShowAdminSignModal(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90" style={{ backgroundColor: '#B87333', color: '#FFFFFF' }}><Shield size={14} />HR / QA Release</button>)}
+           {isAdminReleased && (<div className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium" style={{ backgroundColor: '#D1FAE5', color: '#2E8B57' }} title={adminReleaseInfo ? `Released by ${adminReleaseInfo.releasedBy}` : undefined}><CheckCircle size={14} />Released {adminReleaseInfo?.releasedAt ? new Date(adminReleaseInfo.releasedAt).toLocaleDateString() : ''}{releaseAgreement && <button onClick={() => runAction(() => store.downloadAgreementReceipt(releaseAgreement))} className="ml-1 underline flex items-center gap-0.5" title={releaseAgreement.trackingId}><Download size={12} />Receipt</button>}</div>)}
+           <div className="relative" data-export-menu>
             <button onClick={() => setShowExportMenu(!showExportMenu)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90" style={{ backgroundColor: '#002366', color: '#FFFFFF' }}>
               <Download size={14} />Export Reports <ChevronDown size={14} />
             </button>
@@ -330,8 +360,144 @@ export default function AdminDashboard({ viewingCycleId, onViewingCycleChange }:
             </div>
           </div>
         </div>
-      )}
-      {activeTab === 'audit' && (
+       )}
+       {activeTab === 'accounts' && (
+         <div className="space-y-6">
+           <div className="flex gap-2 mb-4">
+             <button onClick={() => setAccountFormTab('create')} className="px-4 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: accountFormTab === 'create' ? '#002366' : '#D5D8DC', color: accountFormTab === 'create' ? '#FFFFFF' : '#1A1A1A' }}>Create Account</button>
+             <button onClick={() => setAccountFormTab('manage')} className="px-4 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: accountFormTab === 'manage' ? '#002366' : '#D5D8DC', color: accountFormTab === 'manage' ? '#FFFFFF' : '#1A1A1A' }}>Manage Accounts</button>
+           </div>
+           {accountFormTab === 'create' && (
+             <div className="space-y-6">
+               <div className="rounded-xl p-6 shadow-sm" style={{ backgroundColor: '#EDEBE8' }}>
+                 <h3 className="text-sm font-semibold mb-4" style={{ color: '#002366' }}>Create a Single Account</h3>
+                 <div className="mb-6"><label className="block text-sm font-medium mb-3">Account Type *</label><div className="grid grid-cols-2 md:grid-cols-4 gap-3">{['faculty', 'student', 'dean', 'hr_qa'].map(role => (<button key={role} type="button" onClick={() => { setSelectedAccountRole(role as any); setAccountMessage(null); }} className="px-4 py-3 rounded-lg text-sm font-medium" style={{ backgroundColor: selectedAccountRole === role ? '#002366' : '#F8F6F1', color: selectedAccountRole === role ? '#FFFFFF' : '#1A1A1A', border: selectedAccountRole === role ? '2px solid #002366' : '2px solid #D5D8DC' }}>{role === 'hr_qa' ? 'HR / QA' : role.charAt(0).toUpperCase() + role.slice(1)}</button>))}</div></div>
+                 {accountMessage && (<div className="mb-6 p-4 rounded-lg flex items-start gap-3" style={{ backgroundColor: accountMessage.type === 'success' ? '#D1FAE5' : '#FEE2E2', border: `1px solid ${accountMessage.type === 'success' ? '#2E8B57' : '#C41E3A'}` }}><span className="text-sm flex-1">{accountMessage.text}</span></div>)}
+                 <form onSubmit={async (e) => { e.preventDefault(); setAccountMessage(null); if (accountFormData.password && accountFormData.password !== accountFormData.confirmPassword) { setAccountMessage({ type: 'error', text: 'Passwords do not match' }); return; } setAccountSubmitting(true); try { const result = await store.createAccount({ role: selectedAccountRole, name: accountFormData.name.trim(), institutionalId: accountFormData.institutionalId.trim(), email: accountFormData.email.trim(), username: accountFormData.username.trim() || undefined, password: accountFormData.password || undefined, department: ['faculty', 'dean'].includes(selectedAccountRole) ? accountFormData.department : undefined, title: selectedAccountRole === 'faculty' ? accountFormData.title : undefined, programId: selectedAccountRole === 'student' ? accountFormData.programId : undefined, subjects: ['faculty', 'student'].includes(selectedAccountRole) ? accountFormData.subjects : undefined }); setAccountMessage({ type: 'success', text: `${result.message} Username: ${result.username}` }); setAccountFormData({ name: '', institutionalId: '', email: '', username: '', password: '', confirmPassword: '', department: '', title: '', programId: '', subjects: [] }); loadData(); } catch (err) { setAccountMessage({ type: 'error', text: errorMessage(err) }); } finally { setAccountSubmitting(false); } }} className="space-y-4">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <input type="text" name="name" value={accountFormData.name} onChange={e => setAccountFormData({...accountFormData, name: e.target.value})} placeholder="Full Name *" required className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }} />
+                     <input type="text" name="institutionalId" value={accountFormData.institutionalId} onChange={e => setAccountFormData({...accountFormData, institutionalId: e.target.value})} placeholder="Institutional ID *" required className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }} />
+                     <input type="email" name="email" value={accountFormData.email} onChange={e => setAccountFormData({...accountFormData, email: e.target.value})} placeholder="Email *" required className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }} />
+                     <input type="text" name="username" value={accountFormData.username} onChange={e => setAccountFormData({...accountFormData, username: e.target.value})} placeholder="Username (auto-generated if empty)" className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }} />
+                     {['faculty', 'dean'].includes(selectedAccountRole) && (
+                       <select name="department" value={accountFormData.department} onChange={e => setAccountFormData({...accountFormData, department: e.target.value})} required className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }}>
+                         <option value="">Select Department *</option>
+                         {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                       </select>
+                     )}
+                     {selectedAccountRole === 'faculty' && (
+                       <select name="title" value={accountFormData.title} onChange={e => setAccountFormData({...accountFormData, title: e.target.value})} required className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }}>
+                         <option value="">Select Title *</option>
+                         {['Professor', 'Associate Professor', 'Assistant Professor', 'Instructor', 'Lecturer'].map(t => <option key={t} value={t}>{t}</option>)}
+                       </select>
+                     )}
+                     {selectedAccountRole === 'student' && (
+                       <select name="programId" value={accountFormData.programId} onChange={e => setAccountFormData({...accountFormData, programId: e.target.value})} required className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }}>
+                         <option value="">Select Program *</option>
+                         {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                       </select>
+                     )}
+                     <input type="password" name="password" value={accountFormData.password} onChange={e => setAccountFormData({...accountFormData, password: e.target.value})} placeholder="Password (optional, sent via email)" className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }} />
+                     <input type="password" name="confirmPassword" value={accountFormData.confirmPassword} onChange={e => setAccountFormData({...accountFormData, confirmPassword: e.target.value})} placeholder="Confirm Password" className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }} />                   </div>
+                   {['faculty', 'student'].includes(selectedAccountRole) && (
+                     <div>
+                       <label className="block text-sm font-medium mb-2">Subjects</label>
+                       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-2" style={{ backgroundColor: '#F8F6F1', borderRadius: '0.5rem' }}>
+                         {(selectedAccountRole === 'student' && accountFormData.programId ? subjects.filter(s => s.programId === accountFormData.programId) : subjects).map(s => (
+                           <label key={s.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                             <input type="checkbox" checked={accountFormData.subjects.includes(s.id)} onChange={() => setAccountFormData({...accountFormData, subjects: accountFormData.subjects.includes(s.id) ? accountFormData.subjects.filter(x => x !== s.id) : [...accountFormData.subjects, s.id]})} />
+                             {s.code}
+                           </label>
+                         ))}
+                       </div>
+                     </div>
+                   )}
+                   <button type="submit" disabled={accountSubmitting} className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: '#002366' }}>Create Account</button>
+                 </form>
+               </div>
+               <BulkImport />
+             </div>
+           )}
+          {accountFormTab === 'manage' && (() => {
+            const roleLabel = (role: UserRole) => role === 'hr_qa' ? 'HR / QA' : role.charAt(0).toUpperCase() + role.slice(1);
+            const q = accountSearch.trim().toLowerCase();
+            const visibleAccounts = accounts.filter(a =>
+              (accountRoleFilter === 'all' || a.role === accountRoleFilter) &&
+              (!q || [a.username, a.displayName, a.institutionalId, a.email ?? '', a.department ?? ''].some(v => v.toLowerCase().includes(q))));
+            return (
+              <div className="space-y-4">
+                <div className="rounded-xl p-4 shadow-sm flex flex-wrap items-center gap-3" style={{ backgroundColor: '#EDEBE8' }}>
+                  <div className="relative flex-1 min-w-[220px]">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#9CA3AF' }} />
+                    <input type="text" value={accountSearch} onChange={e => setAccountSearch(e.target.value)} placeholder="Search by name, username, ID, email or department" className="w-full pl-9 pr-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }} />
+                  </div>
+                  <select value={accountRoleFilter} onChange={e => setAccountRoleFilter(e.target.value as 'all' | UserRole)} className="px-3 py-2 rounded-lg border text-sm outline-none" style={{ backgroundColor: '#F8F6F1', borderColor: '#D5D8DC' }}>
+                    <option value="all">All roles</option>
+                    {(['faculty', 'student', 'dean', 'hr_qa'] as const).map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
+                  </select>
+                  <button onClick={() => { setManageMessage(null); loadAccounts(); }} disabled={accountsLoading} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border hover:bg-black/5 disabled:opacity-50" style={{ borderColor: '#D5D8DC' }}><RefreshCw size={12} className={accountsLoading ? 'animate-spin' : ''} />Refresh</button>
+                </div>
+                {manageMessage && (
+                  <div className="p-3 rounded-lg flex items-start gap-3" style={{ backgroundColor: manageMessage.type === 'success' ? '#D1FAE5' : '#FEE2E2', border: `1px solid ${manageMessage.type === 'success' ? '#2E8B57' : '#C41E3A'}` }}>
+                    <span className="text-sm flex-1">{manageMessage.text}</span>
+                    <button onClick={() => setManageMessage(null)} aria-label="Dismiss"><X size={14} /></button>
+                  </div>
+                )}
+                <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: '#EDEBE8' }}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr style={{ backgroundColor: '#002366' }}>{['Username', 'Name', 'Role', 'Department', 'Status', 'Last Sign-in', 'Actions'].map((h, idx) => <th key={h} className={`${idx < 2 ? 'text-left' : 'text-center'} px-4 py-3 text-white font-medium`}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {accountsLoading && accounts.length === 0 ? (
+                          <tr style={{ backgroundColor: '#F8F6F1' }}><td colSpan={7} className="px-4 py-3 text-center text-xs" style={{ color: '#9CA3AF' }}>Loading accounts…</td></tr>
+                        ) : visibleAccounts.length === 0 ? (
+                          <tr style={{ backgroundColor: '#F8F6F1' }}><td colSpan={7} className="px-4 py-3 text-center text-xs" style={{ color: '#9CA3AF' }}>{accounts.length === 0 ? 'No accounts available' : 'No accounts match your filters'}</td></tr>
+                        ) : (
+                          visibleAccounts.map((account, i) => {
+                            const isSelf = account.id === user?.id;
+                            const busy = accountBusyId === account.id;
+                            const status = !account.isActive ? { label: 'Inactive', bg: '#FEE2E2', fg: '#C41E3A' }
+                              : account.lockedUntil ? { label: 'Locked', bg: '#FEF3C7', fg: '#B45309' }
+                              : !account.hasPassword ? { label: 'Invite pending', bg: '#E3F2FD', fg: '#0D47A1' }
+                              : { label: 'Active', bg: '#D1FAE5', fg: '#2E8B57' };
+                            return (
+                              <tr key={account.id} style={{ backgroundColor: i % 2 === 0 ? '#EDEBE8' : '#F8F6F1' }}>
+                                <td className="px-4 py-3 font-medium">{account.username}{isSelf && <span className="ml-1 text-xs" style={{ color: '#9CA3AF' }}>(you)</span>}</td>
+                                <td className="px-4 py-3"><div>{account.displayName}</div><div className="text-xs" style={{ color: '#9CA3AF' }}>{account.institutionalId}{account.email ? ` · ${account.email}` : ''}</div></td>
+                                <td className="px-4 py-3 text-center"><span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: '#E3F2FD', color: '#0D47A1' }}>{roleLabel(account.role)}</span></td>
+                                <td className="px-4 py-3 text-center text-xs" style={{ color: '#4B5563' }}>{account.department ?? '—'}</td>
+                                <td className="px-4 py-3 text-center"><span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: status.bg, color: status.fg }} title={account.lockedUntil ? `Locked until ${new Date(account.lockedUntil).toLocaleString()}` : undefined}>{status.label}</span></td>
+                                <td className="px-4 py-3 text-center text-xs" style={{ color: '#4B5563' }}>{account.lastLoginAt ? new Date(account.lastLoginAt).toLocaleString() : 'Never'}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center gap-1 flex-wrap">
+                                    {account.isActive && account.email && (
+                                      <button disabled={busy} onClick={() => runAccountAction(account.id, () => store.sendAccountPasswordLink(account.id))} className="px-2 py-1 rounded text-xs text-white hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: '#002366' }}>{account.hasPassword ? 'Reset password' : 'Resend invite'}</button>
+                                    )}
+                                    {account.isActive && account.lockedUntil && (
+                                      <button disabled={busy} onClick={() => runAccountAction(account.id, () => store.unlockAccount(account.id))} className="px-2 py-1 rounded text-xs text-white hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: '#B45309' }}>Unlock</button>
+                                    )}
+                                    {account.isActive ? (
+                                      <button disabled={busy || isSelf} title={isSelf ? 'You cannot deactivate your own account' : undefined} onClick={() => setConfirmDialog({ open: true, type: 'danger', title: 'Deactivate Account', message: `Deactivate ${account.displayName} (${account.username})? They will be signed out immediately and unable to sign in until reactivated. Their evaluation records are kept.`, onConfirm: () => { setConfirmDialog(prev => ({ ...prev, open: false })); runAccountAction(account.id, () => store.setAccountActive(account.id, false)); } })} className="px-2 py-1 rounded text-xs text-white hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: '#C41E3A' }}>Deactivate</button>
+                                    ) : (
+                                      <button disabled={busy} onClick={() => runAccountAction(account.id, () => store.setAccountActive(account.id, true))} className="px-2 py-1 rounded text-xs text-white hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: '#2E8B57' }}>Reactivate</button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="px-4 py-2 text-xs" style={{ color: '#9CA3AF' }}>Showing {visibleAccounts.length} of {accounts.length} account(s). Every action is recorded in the Audit Trail.</p>
+                </div>
+              </div>
+            );
+          })()}
+         </div>
+       )}
+       {activeTab === 'audit' && (
         <div className="space-y-4">
           <div className="rounded-xl p-4 shadow-sm flex items-center justify-between flex-wrap gap-3" style={{ backgroundColor: '#EDEBE8' }}>
             <div>

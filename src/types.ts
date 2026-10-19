@@ -317,6 +317,22 @@ export interface BulkImportResult {
   rows: Array<{ row: number; institutionalId: string; username: string; role: UserRole }>;
 }
 
+/** An account as listed for HR / QA management (credentials never included). */
+export interface ManagedAccount {
+  id: string;
+  username: string;
+  displayName: string;
+  email: string | null;
+  role: UserRole;
+  institutionalId: string;
+  department: string | null;
+  isActive: boolean;
+  hasPassword: boolean; // false while an invitation is still pending
+  lockedUntil: string | null;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
 // Dean Analytics Types
 export interface DeanFacultyDrilldown {
   faculty: Faculty;

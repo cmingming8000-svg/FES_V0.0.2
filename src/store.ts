@@ -3,7 +3,7 @@ import { BENCHMARK, DEAN_OVERSIGHT_WINDOW_DAYS, THRESHOLD } from './constants';
 import type {
   AdminRelease, AgreementSummary, AgreementTemplate, AgreementType, AuditChainVerification, AuditLogEntry, BootstrapPayload,
   BulkImportResult, BulkImportRow, Criterion, DeanRelease, DepartmentTNA, Evaluation, EvaluationCycle, EventType, Faculty,
-  FacultyMetrics, InstitutionalTNA, Program, PublicUser, Student, SubQuestion, Subject, TermStats, TNASnapshotResponse,
+  FacultyMetrics, InstitutionalTNA, ManagedAccount, Program, PublicUser, Student, SubQuestion, Subject, TermStats, TNASnapshotResponse,
   TNATemplate, UserRole,
 } from './types';
 
@@ -491,6 +491,16 @@ class DataStore {
     const result = await api<BulkImportResult>('/accounts/bulk', { method: 'POST', body: { rows } });
     await this.hydrate();
     return result;
+  }
+  async listAccounts(): Promise<ManagedAccount[]> { return api('/accounts'); }
+  async setAccountActive(id: string, isActive: boolean): Promise<{ message: string }> {
+    return api(`/accounts/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { isActive } });
+  }
+  async unlockAccount(id: string): Promise<{ message: string }> {
+    return api(`/accounts/${encodeURIComponent(id)}/unlock`, { method: 'POST' });
+  }
+  async sendAccountPasswordLink(id: string): Promise<{ message: string }> {
+    return api(`/accounts/${encodeURIComponent(id)}/reset-password`, { method: 'POST' });
   }
 }
 
